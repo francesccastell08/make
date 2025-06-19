@@ -3,17 +3,17 @@
 set -euo pipefail
 
 ###############################################################
-# Función de ayuda mejorada
+# Default stages
 function help() {
     cat <<EOF
 COMANDOS TERRAFORM:
 
 	Generals
 		./make <init|plan|apply> <environment> [flags]
-		
+
 	Targets
 		./make plan pre -target=module.alb.aws_lb.main
-		./make plan pre -target 
+		./make plan pre -target
 
 
 COMANDOS PACKER:
@@ -24,28 +24,34 @@ COMANDOS PACKER:
 
 
 NOTAS:
-	- Entornos disponibles: dev, pre, pro (deben existir en ./environments/)
+	- Entornos disponibles: pre, pro
 	- El modo interactivo (-target sin valor) requiere 'jq' instalado
 	- Los archivos .tpl en templates/ se procesan automáticamente
 
 EOF
-    exit 1
+	exit 1
 }
 
 ###############################################################
 # Funciones auxiliares mejoradas
 function header() {
     echo ""
+    echo ""
     echo "========================================================="
-    echo "$1"
+    echo "#"
+    echo "# $1"
+    echo "#"
     echo "========================================================="
 }
 
 function footer() {
+	echo ""
+	echo ""
     echo "========================================================="
-    echo "Operación completada"
+    echo "#"
+    echo "# Step completed"
+    echo "#"
     echo "========================================================="
-    echo ""
 }
 
 function log_info() {
@@ -69,17 +75,17 @@ CURRENT_ENV=""
 # Función mejorada para limpiar archivos temporales
 function cleanup_temp_files() {
     local files_to_clean=()
-    
+
     # Archivos temporales en el directorio actual
     [[ -f "$PLAN_FILE" ]] && files_to_clean+=("$PLAN_FILE")
     [[ -f "$PLAN_JSON" ]] && files_to_clean+=("$PLAN_JSON")
-    
+
     # Archivos temporales en el directorio del entorno si existe
-    if [[ -n "$CURRENT_ENV" && -d "environments/$CURRENT_ENV" ]]; then
-        [[ -f "environments/$CURRENT_ENV/$PLAN_FILE" ]] && files_to_clean+=("environments/$CURRENT_ENV/$PLAN_FILE")
-        [[ -f "environments/$CURRENT_ENV/$PLAN_JSON" ]] && files_to_clean+=("environments/$CURRENT_ENV/$PLAN_JSON")
+    if [[ -n "$CURRENT_ENV" && -d "$CURRENT_ENV" ]]; then
+        [[ -f "$CURRENT_ENV/$PLAN_FILE" ]] && files_to_clean+=("$CURRENT_ENV/$PLAN_FILE")
+        [[ -f "$CURRENT_ENV/$PLAN_JSON" ]] && files_to_clean+=("$CURRENT_ENV/$PLAN_JSON")
     fi
-    
+
     # Limpiar archivos encontrados
     if (( ${#files_to_clean[@]} > 0 )); then
         log_info "Limpiando archivos temporales: ${files_to_clean[*]}"
@@ -114,23 +120,23 @@ function select_target_interactively() {
 
     header "Modo Interactivo - Entorno: $environment"
     log_info "Generando plan para identificar cambios disponibles..."
-    
+
     # Generar plan silenciosamente
-    if ! terraform -chdir="environments/$environment" plan $other_args -out="$PLAN_FILE" > /dev/null 2>&1; then
+    if ! terraform -chdir="$environment" plan $other_args -out="$PLAN_FILE" > /dev/null 2>&1; then
         log_error "Error al generar el plan de Terraform"
         cleanup_and_exit 1
     fi
-    
+
     # Convertir a JSON
-    if ! terraform -chdir="environments/$environment" show -json "$PLAN_FILE" > "$PLAN_JSON" 2>&1; then
+    if ! terraform -chdir="$environment" show -json "$PLAN_FILE" > "$PLAN_JSON" 2>&1; then
         log_error "Error al convertir el plan a JSON"
         cleanup_and_exit 1
     fi
 
     # Extraer recursos con sus acciones
     mapfile -t available_targets < <(
-        jq -r '.resource_changes[] | 
-               select(.change.actions[] != "no-op") | 
+        jq -r '.resource_changes[] |
+               select(.change.actions[] != "no-op") |
                "\(.address) (\(.change.actions | join(",")))"' "$PLAN_JSON" 2>/dev/null
     )
 
@@ -154,7 +160,7 @@ function select_target_interactively() {
         elif [[ "$target" == *"(delete)"* ]]; then
             color="\033[31m"  # Rojo
         fi
-        
+
         printf "  ${color}%2d) %s${reset}\n" "$i" "$target"
         ((i++))
     done
@@ -163,14 +169,14 @@ function select_target_interactively() {
     local selection
     while true; do
         read -p "Selecciona el recurso (1-${#available_targets[@]}, 'a' para todos, 'c' para cancelar): " selection
-        
+
         if [[ "$selection" == "c" || "$selection" == "C" ]]; then
             log_info "Operación cancelada por el usuario"
             cleanup_and_exit 0
         elif [[ "$selection" == "a" || "$selection" == "A" ]]; then
             # Aplicar plan completo
             header "Aplicando plan completo"
-            if terraform -chdir="environments/$environment" apply -auto-approve "$PLAN_FILE"; then
+            if terraform -chdir="$environment" apply -auto-approve "$PLAN_FILE"; then
                 footer
                 cleanup_and_exit 0
             else
@@ -187,10 +193,10 @@ function select_target_interactively() {
     # Extraer dirección del recurso
     local chosen_target_address
     chosen_target_address=$(echo "${available_targets[$((selection - 1))]}" | awk '{print $1}')
-    
+
     # Mostrar plan específico
     header "Plan específico para: $chosen_target_address"
-    terraform -chdir="environments/$environment" plan -target="$chosen_target_address" $other_args
+    terraform -chdir="$environment" plan -target="$chosen_target_address" $other_args
 
     # Confirmar aplicación
     echo ""
@@ -198,7 +204,7 @@ function select_target_interactively() {
     read -p "¿Aplicar estos cambios? (s/N): " confirm
     if [[ "$confirm" == "s" || "$confirm" == "S" || "$confirm" == "y" || "$confirm" == "Y" ]]; then
         header "Aplicando cambios para: $chosen_target_address"
-        if terraform -chdir="environments/$environment" apply -target="$chosen_target_address" -auto-approve "$PLAN_FILE"; then
+        if terraform -chdir="$environment" apply -target="$chosen_target_address" -auto-approve "$PLAN_FILE"; then
             footer
             cleanup_and_exit 0
         else
@@ -213,35 +219,35 @@ function select_target_interactively() {
 
 ###############################################################
 # Validaciones mejoradas
-function validate_action() { 
+function validate_action() {
     local valid_actions=("init" "plan" "apply" "build")
     if [[ ! " ${valid_actions[*]} " =~ " $1 " ]]; then
         log_error "Acción no reconocida: '$1'"
         echo "Acciones válidas: ${valid_actions[*]}"
         help
-    fi
+	fi
 }
 
-function validate_tf_environment() { 
+function validate_tf_environment() {
     if [[ -z "$1" ]]; then
         log_error "El entorno es obligatorio"
-        echo "Entornos disponibles en ./environments/:"
-        find environments/ -maxdepth 1 -type d -not -path environments/ -exec basename {} \; 2>/dev/null | sort || echo "  (ninguno encontrado)"
-        cleanup_and_exit 1
-    fi
-    
-    if [[ ! -d "environments/$1/" ]]; then
-        log_error "Entorno '$1' no encontrado en ./environments/"
         echo "Entornos disponibles:"
-        find environments/ -maxdepth 1 -type d -not -path environments/ -exec basename {} \; 2>/dev/null | sort || echo "  (ninguno encontrado)"
+        find ./ -maxdepth 1 -type d -not -path ./ -exec basename {} \; 2>/dev/null | sort || echo "  (ninguno encontrado)"
         cleanup_and_exit 1
-    fi
-    
+	fi
+
+    if [[ ! -d "$1/" ]]; then
+        log_error "Entorno '$1' no encontrado"
+        echo "Entornos disponibles:"
+        find ./ -maxdepth 1 -type d -not -path ./ -exec basename {} \; 2>/dev/null | sort || echo "  (ninguno encontrado)"
+        cleanup_and_exit 1
+	fi
+
     # Establecer la variable global para limpieza
     CURRENT_ENV="$1"
 }
 
-function validate_tf_templates() { 
+function validate_tf_templates() {
     shopt -s nullglob
     local files=(templates/*.tpl)
     if (( ${#files[@]} )); then
@@ -253,18 +259,18 @@ function validate_tf_templates() {
 
 function validate_dependencies() {
     local missing_deps=()
-    
+
     if [[ "$1" == "terraform" ]]; then
         command -v terraform >/dev/null || missing_deps+=("terraform")
     elif [[ "$1" == "packer" ]]; then
         command -v packer >/dev/null || missing_deps+=("packer")
     fi
-    
+
     if (( ${#missing_deps[@]} > 0 )); then
         log_error "Dependencias faltantes: ${missing_deps[*]}"
         echo "Consulta la documentación de instalación oficial."
         cleanup_and_exit 1
-    fi
+	fi
 }
 
 ###############################################################
@@ -273,10 +279,10 @@ function init() {
     validate_dependencies "terraform"
     validate_tf_environment "$environment"
     header "Terraform Init - Entorno: $environment"
-    
+
     log_info "Inicializando backend y providers..."
-    if terraform -chdir="environments/$environment" init $other_args; then
-        footer
+    if terraform -chdir="$environment" init $other_args; then
+	footer
     else
         log_error "Error durante terraform init"
         cleanup_and_exit 1
@@ -284,21 +290,21 @@ function init() {
 }
 
 function plan() {
-    init
-    
+	init
+
     # Modo interactivo
     if [[ "$interactive_mode" == "true" ]]; then
         select_target_interactively
         return
     fi
-    
+
     # Plan normal
     header "Terraform Plan - Entorno: $environment"
     validate_tf_templates
-    
+
     log_info "Generando plan de ejecución..."
-    if terraform -chdir="environments/$environment" plan $target_arg $other_args; then
-        footer
+    if terraform -chdir="$environment" plan $target_arg $other_args; then
+	footer
     else
         log_error "Error durante terraform plan"
         cleanup_and_exit 1
@@ -306,13 +312,13 @@ function plan() {
 }
 
 function apply() {
-    init
+	init
     header "Terraform Apply - Entorno: $environment"
     validate_tf_templates
-    
+
     log_info "Aplicando cambios de infraestructura..."
-    if terraform -chdir="environments/$environment" apply $target_arg $other_args; then
-        footer
+    if terraform -chdir="$environment" apply $target_arg $other_args; then
+	footer
     else
         log_error "Error durante terraform apply"
         cleanup_and_exit 1
@@ -321,31 +327,38 @@ function apply() {
 
 function build() {
     validate_dependencies "packer"
-    
+
     if [[ -z "$environment" ]]; then
         log_error "Debes especificar una aplicación para construir con Packer"
         echo "Ejemplo: ./make build webapp"
         cleanup_and_exit 1
     fi
-    
-    if [[ ! -f "$environment" ]]; then
+
+    if [[ ! -d "./amis/$environment" ]]; then
         log_error "Archivo de template Packer '$environment' no encontrado"
         echo "Templates disponibles:"
-        find . -name "*.pkr.hcl" -o -name "*.json" | grep -E "(packer|build)" || echo "  (ninguno encontrado)"
+		find ./amis -maxdepth 1 -type d -not -path ./ -exec basename {} \; 2>/dev/null | sort || echo "  (ninguno encontrado)"
         cleanup_and_exit 1
     fi
-    
+
     header "Packer Build - Aplicación: $environment"
-    
+
     local build_args=""
-    for arg in "${@:3}"; do 
+    for arg in "${@:3}"; do
         build_args+=" $arg"
     done
-    
+
     log_info "Construyendo imagen con Packer..."
-    if packer build $build_args "$environment"; then
-        footer
+
+	pushd "amis/$environment/"
+
+	packer init "$environment.pkr.hcl"
+
+    if packer build $build_args .; then
+        popd > /dev/null
+		footer
     else
+        popd > /dev/null
         log_error "Error durante packer build"
         cleanup_and_exit 1
     fi
@@ -374,7 +387,7 @@ done
 ###############################################################
 # Ejecución principal
 if [[ -z "$action" ]]; then
-    help
+	help
 fi
 
 validate_action "$action"
