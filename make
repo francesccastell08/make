@@ -6,9 +6,9 @@ set -euo pipefail
 # Default stages
 function help() {
     cat <<EOF
-COMANDOS TERRAFORM:
+TERRAFORM COMMANDS:
 
-	Generals
+	General
 		./make <init|plan|apply> <environment> [flags]
 
 	Targets
@@ -16,17 +16,17 @@ COMANDOS TERRAFORM:
 		./make plan pre -target
 
 
-COMANDOS PACKER:
+PACKER COMMANDS:
 	./make build <app> [flags]
 
 		./make build webapp
 		./make build api -var="ami_name=custom-api-v2"
 
 
-NOTAS:
-	- Entornos disponibles: pre, pro
-	- El modo interactivo (-target sin valor) requiere 'jq' instalado
-	- Los archivos .tpl en templates/ se procesan automáticamente
+NOTeS:
+	- Available environments: pre, pro
+	- Interactive mode (-target without a value) requires jq to be installed
+	- .tpl files in the templates/ directory are processed automatically
 
 EOF
 	exit 1
@@ -88,7 +88,7 @@ function cleanup_temp_files() {
 
     # Limpiar archivos encontrados
     if (( ${#files_to_clean[@]} > 0 )); then
-        log_info "Limpiando archivos temporales: ${files_to_clean[*]}"
+        log_info "Cleaning temporary files: ${files_to_clean[*]}"
         rm -f "${files_to_clean[@]}"
     fi
 }
@@ -102,34 +102,34 @@ function cleanup_and_exit() {
 
 # Configurar trap global para limpieza automática
 trap 'cleanup_temp_files' EXIT
-trap 'log_warning "Script interrumpido por el usuario"; cleanup_and_exit 130' INT
-trap 'log_error "Script terminado inesperadamente"; cleanup_and_exit 143' TERM
+trap 'log_warning "Script interrupted by the user"; cleanup_and_exit 130' INT
+trap 'log_error "Script terminated unexpectedly"; cleanup_and_exit 143' TERM
 
 ###############################################################
 # Función Interactiva mejorada
 function select_target_interactively() {
     # Verificar dependencias
     if ! command -v jq &> /dev/null; then
-        log_error "La herramienta 'jq' no está instalada, pero es necesaria para el modo interactivo."
-        echo "Instalación:"
+        log_error "The 'jq' tool is not installed, but it is required for interactive mode"
+        echo "Installing:"
         echo "  Ubuntu/Debian: sudo apt-get install jq"
         echo "  macOS: brew install jq"
         echo "  CentOS/RHEL: sudo yum install jq"
         cleanup_and_exit 1
     fi
 
-    header "Modo Interactivo - Entorno: $environment"
-    log_info "Generando plan para identificar cambios disponibles..."
+    header "Interactive Mode - Environment: $environment"
+    log_info "Generating plan to identify available changes..."
 
     # Generar plan silenciosamente
     if ! terraform -chdir="$environment" plan $other_args -out="$PLAN_FILE" > /dev/null 2>&1; then
-        log_error "Error al generar el plan de Terraform"
+        log_error "Error during terraform plan"
         cleanup_and_exit 1
     fi
 
     # Convertir a JSON
     if ! terraform -chdir="$environment" show -json "$PLAN_FILE" > "$PLAN_JSON" 2>&1; then
-        log_error "Error al convertir el plan a JSON"
+        log_error "Error converting the plan to JSON"
         cleanup_and_exit 1
     fi
 
@@ -141,12 +141,12 @@ function select_target_interactively() {
     )
 
     if [ ${#available_targets[@]} -eq 0 ]; then
-        log_info "El plan no contiene cambios. Infraestructura actualizada."
+        log_info "This plan not contain any changes. Infraestructure is up to date."
         cleanup_and_exit 0
     fi
 
     echo ""
-    echo "Recursos que serán modificados:"
+    echo "Resources that will be modified"
     echo "================================="
     local i=1
     for target in "${available_targets[@]}"; do
@@ -168,25 +168,25 @@ function select_target_interactively() {
     echo ""
     local selection
     while true; do
-        read -p "Selecciona el recurso (1-${#available_targets[@]}, 'a' para todos, 'c' para cancelar): " selection
+        read -p "Choose Resource (1-${#available_targets[@]}, 'a' for all, 'c' to Cancel): " selection
 
         if [[ "$selection" == "c" || "$selection" == "C" ]]; then
-            log_info "Operación cancelada por el usuario"
+            log_info "Operacion has been cancelled by the user."
             cleanup_and_exit 0
         elif [[ "$selection" == "a" || "$selection" == "A" ]]; then
             # Aplicar plan completo
-            header "Aplicando plan completo"
+            header "Applying full plan"
             if terraform -chdir="$environment" apply -auto-approve "$PLAN_FILE"; then
                 footer
                 cleanup_and_exit 0
             else
-                log_error "Error durante la aplicación del plan"
+                log_error "Error has been detected during plan application"
                 cleanup_and_exit 1
             fi
         elif [[ "$selection" =~ ^[0-9]+$ ]] && (( selection >= 1 && selection <= ${#available_targets[@]} )); then
             break
         else
-            log_warning "Selección inválida. Introduce un número válido, 'a' o 'c'."
+            log_warning "Invalid selection. Choos a valid letter, 'a' o 'c'"
         fi
     done
 
@@ -201,18 +201,18 @@ function select_target_interactively() {
     # Confirmar aplicación
     echo ""
     local confirm
-    read -p "¿Aplicar estos cambios? (s/N): " confirm
+    read -p "Do you want to apply these changes? (s/N): " confirm
     if [[ "$confirm" == "s" || "$confirm" == "S" || "$confirm" == "y" || "$confirm" == "Y" ]]; then
-        header "Aplicando cambios para: $chosen_target_address"
+        header "Appling changes: $chosen_target_address"
         if terraform -chdir="$environment" apply -target="$chosen_target_address" -auto-approve "$PLAN_FILE"; then
             footer
             cleanup_and_exit 0
         else
-            log_error "Error durante la aplicación del plan específico"
+            log_error "Error has been detected while applying the specific plan"
             cleanup_and_exit 1
         fi
     else
-        log_info "Aplicación cancelada. Archivos temporales eliminados."
+        log_info "This plan has been cancelled. Temporary files have been removed."
         cleanup_and_exit 0
     fi
 }
@@ -222,24 +222,24 @@ function select_target_interactively() {
 function validate_action() {
     local valid_actions=("init" "plan" "apply" "build")
     if [[ ! " ${valid_actions[*]} " =~ " $1 " ]]; then
-        log_error "Acción no reconocida: '$1'"
-        echo "Acciones válidas: ${valid_actions[*]}"
+        log_error "This option doesn't exist: '$1'"
+        echo "Valid options: ${valid_actions[*]}"
         help
 	fi
 }
 
 function validate_tf_environment() {
     if [[ -z "$1" ]]; then
-        log_error "El entorno es obligatorio"
-        echo "Entornos disponibles:"
-        find ./ -maxdepth 1 -type d -not -path ./ -exec basename {} \; 2>/dev/null | sort || echo "  (ninguno encontrado)"
+        log_error "The environment must be specified"
+        echo "Environments availables:"
+        find ./ -maxdepth 1 -type d -not -path ./ -exec basename {} \; 2>/dev/null | sort || echo "  (Not founded)"
         cleanup_and_exit 1
 	fi
 
     if [[ ! -d "$1/" ]]; then
-        log_error "Entorno '$1' no encontrado"
-        echo "Entornos disponibles:"
-        find ./ -maxdepth 1 -type d -not -path ./ -exec basename {} \; 2>/dev/null | sort || echo "  (ninguno encontrado)"
+        log_error "Environment '$1' not founded"
+        echo "Environments availables:"
+        find ./ -maxdepth 1 -type d -not -path ./ -exec basename {} \; 2>/dev/null | sort || echo "  (Not founded)"
         cleanup_and_exit 1
 	fi
 
@@ -251,7 +251,7 @@ function validate_tf_templates() {
     shopt -s nullglob
     local files=(templates/*.tpl)
     if (( ${#files[@]} )); then
-        log_info "Procesando ${#files[@]} templates..."
+        log_info "Processing ${#files[@]} templates..."
         dos2unix "${files[@]}" >/dev/null 2>&1
     fi
     shopt -u nullglob
@@ -267,8 +267,8 @@ function validate_dependencies() {
     fi
 
     if (( ${#missing_deps[@]} > 0 )); then
-        log_error "Dependencias faltantes: ${missing_deps[*]}"
-        echo "Consulta la documentación de instalación oficial."
+        log_error "Missing dependencies: ${missing_deps[*]}"
+        echo "You need to chec the official installation documentation."
         cleanup_and_exit 1
 	fi
 }
@@ -278,13 +278,13 @@ function validate_dependencies() {
 function init() {
     validate_dependencies "terraform"
     validate_tf_environment "$environment"
-    header "Terraform Init - Entorno: $environment"
+    header "Terraform Init - Environment: $environment"
 
-    log_info "Inicializando backend y providers..."
+    log_info "Starting backend and Providers..."
     if terraform -chdir="$environment" init $other_args; then
 	footer
     else
-        log_error "Error durante terraform init"
+        log_error "Error has ocurred during terraform init"
         cleanup_and_exit 1
     fi
 }
@@ -299,28 +299,28 @@ function plan() {
     fi
 
     # Plan normal
-    header "Terraform Plan - Entorno: $environment"
+    header "Terraform Plan - Environment: $environment"
     validate_tf_templates
 
-    log_info "Generando plan de ejecución..."
+    log_info "Generating plan to identify changes..."
     if terraform -chdir="$environment" plan $target_arg $other_args; then
 	footer
     else
-        log_error "Error durante terraform plan"
+        log_error "Error has ocurred during terraform plan"
         cleanup_and_exit 1
     fi
 }
 
 function apply() {
 	init
-    header "Terraform Apply - Entorno: $environment"
+    header "Terraform Apply - Environment: $environment"
     validate_tf_templates
 
-    log_info "Aplicando cambios de infraestructura..."
+    log_info "Aplying changes to infrastructure..."
     if terraform -chdir="$environment" apply $target_arg $other_args; then
 	footer
     else
-        log_error "Error durante terraform apply"
+        log_error "Error has ocurred during terraform plan"
         cleanup_and_exit 1
     fi
 }
@@ -329,26 +329,26 @@ function build() {
     validate_dependencies "packer"
 
     if [[ -z "$environment" ]]; then
-        log_error "Debes especificar una aplicación para construir con Packer"
+        log_error "You must to specify an application to build with Packer"
         echo "Ejemplo: ./make build webapp"
         cleanup_and_exit 1
     fi
 
     if [[ ! -d "./amis/$environment" ]]; then
-        log_error "Archivo de template Packer '$environment' no encontrado"
-        echo "Templates disponibles:"
-		find ./amis -maxdepth 1 -type d -not -path ./ -exec basename {} \; 2>/dev/null | sort || echo "  (ninguno encontrado)"
+        log_error "Packer template file '$environment' not found"
+        echo "Templates availables:"
+		find ./amis -maxdepth 1 -type d -not -path ./ -exec basename {} \; 2>/dev/null | sort || echo "  (not founded)"
         cleanup_and_exit 1
     fi
 
-    header "Packer Build - Aplicación: $environment"
+    header "Packer Build - App: $environment"
 
     local build_args=""
     for arg in "${@:3}"; do
         build_args+=" $arg"
     done
 
-    log_info "Construyendo imagen con Packer..."
+    log_info "Building image with Packer..."
 
 	pushd "amis/$environment/"
 
@@ -359,7 +359,7 @@ function build() {
 		footer
     else
         popd > /dev/null
-        log_error "Error durante packer build"
+        log_error "Error has ocurred during packer build"
         cleanup_and_exit 1
     fi
 }
